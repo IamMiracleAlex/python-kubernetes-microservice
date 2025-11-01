@@ -1,0 +1,167 @@
+services:
+  postgres:
+    image: IamMiracleAlex/postgres
+    container_name: postgres
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    # volumes: # (removed to use COPY in Dockerfile)
+    #   - ./postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth:
+    image: IamMiracleAlex/auth
+    container_name: auth
+    build:
+      context: .
+      dockerfile: auth/Dockerfile
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=postgres
+      - DATABASE_NAME=postgres
+      - JWT_SECRET=your_jwt_secret_key
+    ports:
+      - "5050:5050"
+    depends_on:
+      - postgres
+
+  gateway:
+    image: IamMiracleAlex/gateway
+    container_name: gateway
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      - MONGO_HOST=mongo
+      - AUTH_SERVICE_HOST=auth
+      - AUTH_SERVICE_PORT=5050
+      - AUTH_SVC_ADDRESS=auth:5050
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=authuser
+      - POSTGRES_PASSWORD=password123
+      - POSTGRES_DB=authdb
+      - JWT_SECRET=sample_secret_key
+      - KAFKA_HOST=kafka
+      - KAFKA_PORT=9092
+      # - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      # - KAFKA_BOOTSTRAP_SERVERS=0.0.0.0:9092
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    # networks:
+    #   - kafka-net
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth
+      - mongo 
+      - kafka
+  
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    # environment:
+    #   MONGO_INITDB_ROOT_USERNAME: mongo
+    #   MONGO_INITDB_ROOT_PASSWORD: mongo
+    ports:
+      - "27017:27017"
+    # volumes:
+    #   - mongo-data:/data/db
+  
+  kafka:
+    image: confluentinc/cp-kafka:7.8.3
+    container_name: kafka
+
+    ports:
+      - "9092:9092"     # external access (host)
+      - "29092:29092"   # internal access (within docker network)
+    environment:
+      # Required KRaft settings
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk  # random unique base64 id; can be static or generated
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    # networks:
+    #   - kafka-net
+
+
+    # ports:
+    #   - "9092:9092"
+    #   - '9093:9093'
+
+    # environment:
+    #   KAFKA_KRAFT_MODE: 'true'
+
+    #   CLUSTER_ID: '1L6g7nGhU-eAKfL--X25wo'
+    #   KAFKA_NODE_ID: 1
+
+    #   KAFKA_PROCESS_ROLES: broker,controller
+    #   KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+    #   KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+    #   KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+    #   KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+    #   KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    #   # KAFKA_ADVERTISED_HOST_NAME: kafka
+
+    #   KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+
+
+    # volumes:
+    #   - kafka_kraft:/var/lib/kafka/data
+
+  converter:
+    image: IamMiracleAlex/converter
+    container_name: converter
+    build:
+      context: .
+      dockerfile: converter/Dockerfile
+    environment:
+      - MONGO_HOST=mongo
+      # - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    # networks:
+    #   - kafka-net
+    depends_on:
+      - mongo
+      - kafka
+  
+  notification:
+    image: IamMiracleAlex/notification
+    container_name: notification
+    build:
+      context: .
+      dockerfile: notification/Dockerfile
+    environment:
+      - MONGO_HOST=mongo
+      # - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SMTP_HOST=smtp.example.com
+      - SMTP_USERNAME=your_smtp_username
+      - SMTP_PASSWORD=your_smtp_password
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    # networks:
+    #   - kafka-net
+    depends_on:
+      - kafka     
+
+volumes:
+  kafka_kraft:
+
+# networks:
+#   kafka-net:
+#     name: kafka-net
